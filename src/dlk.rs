@@ -107,40 +107,29 @@ pub fn decrypt(encrypted_data: &[u8]) -> Result<Vec<u8>, DecryptError> {
                     for (key, name) in known_keys().iter() {
                         debug!("Trying {} key...", name);
 
+                        let key_bytes = key.as_bytes();
                         let mut decrypted_data: Vec<u8> = Vec::new();
                         let mut processed_data_size: usize = 0;
 
                         // Loop through each encrypted block
                         for block in block_data.chunks(block_size) {
-                            // A block consists of a 16-byte IV followed by the encrypted data;
-                            // hence a valid block must have more than 16 bytes in it.
                             if block.len() <= IV_SIZE {
-                                warn!("Block is too small!");
+                                warn!("Block is too small");
                                 break;
                             }
 
-                            // Separate out the IV from the encrypted block data
                             let iv = &block[0..IV_SIZE];
                             let encrypted_block = &block[IV_SIZE..];
 
-                            // Decrypt the block
-                            match aes_256_cbc_decrypt(
-                                encrypted_block,
-                                &key.clone().into_bytes(),
-                                iv,
-                            ) {
-                                Err(_) => {
-                                    break;
-                                }
+                            match aes_256_cbc_decrypt(encrypted_block, key_bytes, iv) {
+                                Err(_) => break,
                                 Ok(decrypted_block) => {
-                                    // Track how much data has been successfully decrypted and add the decrypted data to decrypted_data
                                     processed_data_size += block.len();
                                     decrypted_data.extend(decrypted_block);
                                 }
                             }
                         }
 
-                        // If all data was decrypted successfully, return success
                         if processed_data_size == total_data_size {
                             return Ok(decrypted_data);
                         }

@@ -1,6 +1,8 @@
+use crate::aes;
 use crate::common::DecryptError;
-use crate::openssl::{MessageDigest, aes_128_cbc_decrypt};
+use crate::openssl::{MessageDigest, extract_openssl_key_iv};
 use log::{debug, warn};
+use rayon::prelude::*;
 use std::collections::HashMap;
 
 /// Returns a HashMap of known encryption passphrases and their descriptions
@@ -90,8 +92,6 @@ pub fn decrypt(encrypted_data: &[u8]) -> Result<Vec<u8>, DecryptError> {
 
     // Expected magic bytes of the decrypted data
     const DECRYPTED_MAGIC: &[u8] = b"MH01";
-    const DECRYPTED_MAGIC_START: usize = 0;
-    const DECRYPTED_MAGIC_END: usize = DECRYPTED_MAGIC_START + DECRYPTED_MAGIC.len();
 
     // Validate the encrypted firmware header magic bytes
     if let Some(encrypted_magic) = encrypted_data.get(0..ENCRYPTED_MAGIC.len()) {
@@ -119,33 +119,48 @@ pub fn decrypt(encrypted_data: &[u8]) -> Result<Vec<u8>, DecryptError> {
                             if let Some(cipher_data) =
                                 encrypted_data.get(cipher_data_start..cipher_data_end)
                             {
-                                // Try to decrypt with known encryption keys
+                                // Sort keys by description and try in parallel
                                 let mut sorted_keys: Vec<_> = known_keys().into_iter().collect();
-                                sorted_keys.sort_by(|a, b| a.1.cmp(&b.1)); // Sorting by the 'name' (value)
-                                for (password, name) in sorted_keys.iter() {
-                                    debug!("Trying {} decryption key", name);
+                                sorted_keys.sort_by(|a, b| a.1.cmp(&b.1));
+                                let result =
+                                    sorted_keys.par_iter().find_map_any(|(password, name)| {
+                                        debug!("Trying {} decryption key", name);
 
-                                    if let Ok(decrypted_data) = aes_128_cbc_decrypt(
-                                        cipher_data,
-                                        password,
-                                        MessageDigest::SHA256,
-                                        Some(&iv),
-                                    ) {
-                                        // Decryption suceeded, check decrypted magic bytes
-                                        if let Some(decrypted_magic) = decrypted_data
-                                            .get(DECRYPTED_MAGIC_START..DECRYPTED_MAGIC_END)
+                                        if let Ok((key, iv)) = extract_openssl_key_iv(
+                                            cipher_data,
+                                            password,
+                                            MessageDigest::SHA256,
+                                            Some(&iv),
+                                        ) && let Some(actual_ciphertext) = cipher_data.get(16..)
+                                            && let Some(first_block) = actual_ciphertext.get(..16)
                                         {
-                                            if decrypted_magic == DECRYPTED_MAGIC {
-                                                return Ok(decrypted_data);
+                                            if let Ok(first_block) =
+                                                aes::aes_128_cbc_decrypt_unpadded(
+                                                    first_block,
+                                                    &key,
+                                                    &iv,
+                                                )
+                                            {
+                                                if first_block.get(..DECRYPTED_MAGIC.len())
+                                                    == Some(DECRYPTED_MAGIC)
+                                                {
+                                                    return aes::aes_128_cbc_decrypt(
+                                                        actual_ciphertext,
+                                                        &key,
+                                                        &iv,
+                                                    )
+                                                    .ok();
+                                                } else {
+                                                    warn!("Decrypted magic bytes do not match");
+                                                }
                                             } else {
-                                                warn!("Decrypted magic bytes do not match");
+                                                warn!("Decryption failed");
                                             }
-                                        } else {
-                                            warn!("Failed to read decrypted magic bytes");
                                         }
-                                    } else {
-                                        warn!("Decryption failed");
-                                    }
+                                        None
+                                    });
+                                if let Some(decrypted) = result {
+                                    return Ok(decrypted);
                                 }
                             } else {
                                 debug!("Failed to read encrypted data");
