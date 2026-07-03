@@ -1,7 +1,6 @@
 use crate::aes::aes_256_cbc_decrypt_unpadded;
 use crate::common::DecryptError;
 use log::debug;
-use rayon::prelude::*;
 
 #[derive(Clone, Debug, Default)]
 struct EncimgFirmware {
@@ -109,7 +108,7 @@ pub fn decrypt(encrypted_image: &[u8]) -> Result<Vec<u8>, DecryptError> {
         if let Some(encrypted_data) = encrypted_image.get(firmware.encrypted_data_offset..) {
             // Generate possible keys for the given image_sign, try in parallel
             let keys = keygen(&image_sign);
-            let result = keys.par_iter().find_map_any(|crypto| {
+            let result = keys.iter().find_map(|crypto| {
                 if let Some(first_block) = encrypted_data.get(..16)
                     && let Ok(first_block) =
                         aes_256_cbc_decrypt_unpadded(first_block, &crypto.key, &crypto.iv)
