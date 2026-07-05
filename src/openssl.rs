@@ -11,13 +11,6 @@ pub enum MessageDigest {
     SHA256,
 }
 
-/// AES key size to use
-#[derive(Clone, Debug)]
-pub enum KeySize {
-    AES128,
-    AES256,
-}
-
 #[derive(Clone, Default, Debug)]
 struct OpenSSLCryptInfo {
     iv: Vec<u8>,
@@ -96,10 +89,9 @@ fn derive_key_iv(
 }
 
 /// Decrypts an OpenSSL encrypted file
-pub fn decrypt(
+fn decrypt(
     openssl_data: &[u8],
     password: &str,
-    key_size: KeySize,
     hash_type: MessageDigest,
     iv: Option<&[u8]>,
 ) -> Result<Vec<u8>, DecryptError> {
@@ -116,14 +108,7 @@ pub fn decrypt(
                 // Everything after the salt is the encrypted data
                 if let Some(encrypted_data) = openssl_data.get(16..) {
                     // Perform the requested decryption
-                    match key_size {
-                        KeySize::AES128 => {
-                            aes::aes_128_cbc_decrypt(encrypted_data, &crypt.key, &crypt.iv)
-                        }
-                        KeySize::AES256 => {
-                            aes::aes_256_cbc_decrypt(encrypted_data, &crypt.key, &crypt.iv)
-                        }
-                    }
+                    aes::aes_256_cbc_decrypt(encrypted_data, &crypt.key, &crypt.iv)
                 } else {
                     warn!("Failed to read OpenSSL encrypted data");
                     Err(DecryptError::Input)
@@ -142,6 +127,21 @@ pub fn decrypt(
     }
 }
 
+/// Extract the key and IV from an OpenSSL-format encrypted blob.
+pub(crate) fn extract_openssl_key_iv(
+    openssl_data: &[u8],
+    password: &str,
+    hash_type: MessageDigest,
+    iv: Option<&[u8]>,
+) -> Result<(Vec<u8>, Vec<u8>), DecryptError> {
+    let body = openssl_data
+        .strip_prefix(b"Salted__")
+        .ok_or(DecryptError::Input)?;
+    let salt = body.get(..8).ok_or(DecryptError::Input)?;
+    let crypt = derive_key_iv(password, salt, hash_type, iv);
+    Ok((crypt.key, crypt.iv))
+}
+
 /// Decrypts OpenSSL encrypted data using AES-256-CBC
 pub fn aes_256_cbc_decrypt(
     openssl_data: &[u8],
@@ -149,15 +149,5 @@ pub fn aes_256_cbc_decrypt(
     hash_type: MessageDigest,
     iv: Option<&[u8]>,
 ) -> Result<Vec<u8>, DecryptError> {
-    decrypt(openssl_data, password, KeySize::AES256, hash_type, iv)
-}
-
-/// Decrypts OpenSSL encrypted data using AES-128-CBC
-pub fn aes_128_cbc_decrypt(
-    openssl_data: &[u8],
-    password: &str,
-    hash_type: MessageDigest,
-    iv: Option<&[u8]>,
-) -> Result<Vec<u8>, DecryptError> {
-    decrypt(openssl_data, password, KeySize::AES128, hash_type, iv)
+    decrypt(openssl_data, password, hash_type, iv)
 }
