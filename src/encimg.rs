@@ -11,7 +11,7 @@ struct EncimgFirmware {
 
 #[derive(Copy, Clone, Debug)]
 enum ImageSign {
-    ComputedKeys([EncimgKey; PROG_BOARD_FWS.len()]),
+    ComputedKeys(&'static [EncimgKey; PROG_BOARD_FWS.len()]),
     AtOffset(usize),
 }
 
@@ -36,7 +36,7 @@ pub fn decrypt(encrypted_image: &[u8]) -> Result<Vec<u8>, DecryptError> {
             // Most keys are statically computable, so we can use them directly,
             // but some (DIR-2610) require generating keys based on data in the image itself.
             let keys = match firmware.image_sign {
-                ImageSign::ComputedKeys(ref keys) => keys,
+                ImageSign::ComputedKeys(keys) => keys,
                 ImageSign::AtOffset(offset) => {
                     let signing_value = encrypted_image.get(offset..).unwrap_or(&[]);
                     let len = signing_value
@@ -116,48 +116,48 @@ pub const fn encrypt_xor(image_sign: &[u8], data: &mut [u8]) {
 const KNOWN_FIRMWARES: &[EncimgFirmware] = &[
     EncimgFirmware {
         name: "DAP-1665",
-        image_sign: ImageSign::ComputedKeys(keygen(b"wapac25_dlink.2015_dap1665")),
+        image_sign: ImageSign::ComputedKeys(&keygen(b"wapac25_dlink.2015_dap1665")),
         encrypted_data_offset: 0,
     },
     EncimgFirmware {
         name: "DIR-822",
-        image_sign: ImageSign::ComputedKeys(keygen(b"wrgac43s_dlink.2015_dir822c1")),
+        image_sign: ImageSign::ComputedKeys(&keygen(b"wrgac43s_dlink.2015_dir822c1")),
         encrypted_data_offset: 0,
     },
     EncimgFirmware {
         name: "DIR-842",
-        image_sign: ImageSign::ComputedKeys(keygen(b"wrgac65_dlink.2015_dir842")),
+        image_sign: ImageSign::ComputedKeys(&keygen(b"wrgac65_dlink.2015_dir842")),
         encrypted_data_offset: 0,
     },
     EncimgFirmware {
         name: "DIR-850L A1",
-        image_sign: ImageSign::ComputedKeys(keygen(b"wrgac05_dlob.hans_dir850l")),
+        image_sign: ImageSign::ComputedKeys(&keygen(b"wrgac05_dlob.hans_dir850l")),
         encrypted_data_offset: 0,
     },
     EncimgFirmware {
         name: "DIR-850L B1",
-        image_sign: ImageSign::ComputedKeys(keygen(b"wrgac25_dlink.2013gui_dir850l")),
+        image_sign: ImageSign::ComputedKeys(&keygen(b"wrgac25_dlink.2013gui_dir850l")),
         encrypted_data_offset: 0,
     },
     // DIR-880L Rev A v1.08b06. Pairs with the DIR-880L prog_board_fw seed;
     // decryption verified against DIR880A1_FW108b06_beta02.bin.
     EncimgFirmware {
         name: "DIR-880L",
-        image_sign: ImageSign::ComputedKeys(keygen(b"wrgac16_dlink.2013gui_dir880")),
+        image_sign: ImageSign::ComputedKeys(&keygen(b"wrgac16_dlink.2013gui_dir880")),
         encrypted_data_offset: 0,
     },
     // DIR-885L Rev A v1.21B03. Pairs with the DIR-885L prog_board_fw seed;
     // decryption verified against DIR885LA1_FW121b03.bin.
     EncimgFirmware {
         name: "DIR-885L",
-        image_sign: ImageSign::ComputedKeys(keygen(b"wrgac42_dlink.2015_dir885l")),
+        image_sign: ImageSign::ComputedKeys(&keygen(b"wrgac42_dlink.2015_dir885l")),
         encrypted_data_offset: 0,
     },
     // DAP-1720 Ax FW102b01. Pairs with the DAP-1720 prog_board_fw seed;
     // image_sign recovered from firmware, not yet verified against a sample image.
     EncimgFirmware {
         name: "DAP-1720",
-        image_sign: ImageSign::ComputedKeys(keygen(b"wapac28_dlink.2015_dap1720")),
+        image_sign: ImageSign::ComputedKeys(&keygen(b"wapac28_dlink.2015_dap1720")),
         encrypted_data_offset: 0,
     },
     EncimgFirmware {
