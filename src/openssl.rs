@@ -71,33 +71,46 @@ fn derive_key_iv(
         assert!(KEY_LEN.is_multiple_of(MessageDigest::MD5.size()));
         assert!(KEY_LEN.is_multiple_of(MessageDigest::SHA256.size()));
     }
-    let key = generate_key_material(&mut hash, password.as_bytes(), salt, KEY_LEN, &hash_type);
+    let mut key = [0; KEY_LEN];
+    let (first, rest) = key.split_at_mut(hash.len());
+    first.copy_from_slice(&hash);
+
+    generate_key_material(&mut hash, password.as_bytes(), salt, &hash_type, rest);
 
     let iv = match iv {
         Some(user_iv) => user_iv.to_vec(),
-        None => generate_key_material(&mut hash, password.as_bytes(), salt, IV_LEN, &hash_type),
+        None => {
+            let mut iv = [0; IV_LEN];
+            generate_key_material(&mut hash, password.as_bytes(), salt, &hash_type, &mut iv);
+            iv.to_vec()
+        }
     };
-    OpenSSLCryptInfo { key, iv }
+    OpenSSLCryptInfo {
+        key: key.to_vec(),
+        iv,
+    }
 }
 
 fn generate_key_material(
     hash: &mut Vec<u8>,
     password: &[u8],
     salt: &[u8],
-    required_len: usize,
     hash_type: &MessageDigest,
-) -> Vec<u8> {
-    let mut dst = Vec::with_capacity(required_len);
-
-    while dst.len() < required_len {
-        // Append the most recently calculated hash to key_material
-        dst.extend_from_slice(hash);
-
+    dst: &mut [u8],
+) {
+    debug_assert_eq!(hash_type.size(), hash.len());
+    let mut chunks = dst.chunks_exact_mut(hash_type.size());
+    for chunk in &mut chunks {
         // Create a new hash from the last hash + password + salt
         *hash = digest(&[hash.as_slice(), password, salt], hash_type);
+        // Append the most recently calculated hash to key_material
+        chunk.copy_from_slice(hash);
     }
-    dst.truncate(required_len);
-    dst
+    let remainder = chunks.into_remainder();
+    if !remainder.is_empty() {
+        *hash = digest(&[hash.as_slice(), password, salt], hash_type);
+        remainder.copy_from_slice(&hash[..remainder.len()]);
+    }
 }
 
 /// Decrypts an OpenSSL encrypted file
